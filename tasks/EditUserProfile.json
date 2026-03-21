@@ -1,0 +1,6 @@
+{
+  "featureName": "EditUserProfile",
+  "description": "A logged-in user can edit and save their profile information from the profile page.",
+  "testSteps": "1. User is logged in and on the profile page\n2. User clicks the Edit Profile button\n3. The edit form appears with current values pre-filled\n4. User clears and updates the name field\n5. User clears and updates the phone number field\n6. User clicks Save Changes\n7. A success message 'Profile updated' is shown\n8. The profile page now displays the updated name and phone number\n9. User tries to save with an empty name field\n10. A validation error 'Name is required' is shown",
+  "componentDescription": "EditProfileForm component with: name input (pre-filled), email input (read-only), phone input (pre-filled), Save Changes button, Cancel button, success message area, validation error messages per field"
+}

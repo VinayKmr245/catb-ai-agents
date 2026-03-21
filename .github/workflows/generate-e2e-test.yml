@@ -1,0 +1,108 @@
+# .github/workflows/generate-e2e-test.yml
+name: Generate E2E Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      task_file:
+        description: 'Path to task JSON file (e.g. tasks/UserPasswordReset.json)'
+        required: true
+        default: 'tasks/UserPasswordReset.json'
+
+  pull_request:
+    paths:
+      - 'tasks/**.json'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: e2e-agent/package-lock.json
+
+      - name: Install
+        working-directory: e2e-agent
+        run: npm ci
+
+      - name: Generate (manual dispatch)
+        if: github.event_name == 'workflow_dispatch'
+        working-directory: e2e-agent
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API_BASE_URL: https://models.inference.ai.azure.com
+          MODEL: gpt-4o
+          MAX_RETRIES: "3"
+          AUDIT_LOG: "true"
+          CYPRESS_ROOT: ${{ github.workspace }}
+        run: npm run generate:file -- ${{ github.workspace }}/${{ inputs.task_file }}
+
+      - name: Find changed task files (PR)
+        if: github.event_name == 'pull_request'
+        id: changed
+        run: |
+          FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD -- 'tasks/*.json' | tr '\n' ' ')
+          echo "files=$FILES" >> $GITHUB_OUTPUT
+
+      - name: Generate (PR trigger)
+        if: github.event_name == 'pull_request' && steps.changed.outputs.files != ''
+        working-directory: e2e-agent
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API_BASE_URL: https://models.inference.ai.azure.com
+          MODEL: gpt-4o
+          MAX_RETRIES: "3"
+          AUDIT_LOG: "true"
+          CYPRESS_ROOT: ${{ github.workspace }}
+        run: |
+          for f in ${{ steps.changed.outputs.files }}; do
+            npm run generate:file -- ${{ github.workspace }}/$f
+          done
+
+      - name: Commit generated files
+        run: |
+          git config user.name  "e2e-test-agent[bot]"
+          git config user.email "e2e-test-agent[bot]@users.noreply.github.com"
+          git add 'cypress/e2e/generated/**'
+          if git diff --staged --quiet; then
+            echo "Nothing to commit."
+          else
+            git commit -m "test(e2e): auto-generate tests [skip ci]"
+            git push
+          fi
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { execSync } = require('child_process');
+            const files = execSync('git diff HEAD~1 --name-only -- cypress/e2e/generated/').toString().trim();
+            if (!files) return;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: [
+                '### 🤖 E2E Test Agent',
+                '',
+                'Generated and committed:',
+                files.split('\n').map(f => `- \`${f}\``).join('\n'),
+                '',
+                '**Review checklist:**',
+                '1. `.feature` — adjust wording if needed',
+                '2. `.steps.ts` — replace PLACEHOLDER_ selectors',
+                '3. `.selectors.json` — add data-testid attrs to your component',
+              ].join('\n')
+            });

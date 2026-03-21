@@ -1,0 +1,22 @@
+{
+  "name": "e2e-test-agent",
+  "version": "5.0.0",
+  "scripts": {
+    "generate": "ts-node scripts/run-agent.ts",
+    "generate:file": "ts-node scripts/run-agent.ts --config",
+    "generate:interactive": "ts-node scripts/run-agent.ts --interactive",
+    "cache:rebuild": "ts-node scripts/rebuild-cache.ts rebuild",
+    "cache:clear": "ts-node scripts/rebuild-cache.ts clear",
+    "cache:inspect": "ts-node scripts/rebuild-cache.ts inspect"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.4",
+    "glob": "^10.3.10",
+    "openai": "^4.28.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
+  }
+}
