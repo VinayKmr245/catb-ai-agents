@@ -1,0 +1,10 @@
+# Rally Ticket IDs for batch processing
+# One per line — comments with # are ignored
+# Supports both FormattedIDs and full URLs
+
+US12345
+US12346
+US12347
+DE98765
+https://rally1.rallydev.com/#/detail/userstory/99001
+TC11111

@@ -1,0 +1,22 @@
+[
+  {
+    "id": "login-mfa",
+    "type": "rally",
+    "input": "US12345"
+  },
+  {
+    "id": "user-registration",
+    "type": "rally",
+    "input": "US12346"
+  },
+  {
+    "id": "password-reset",
+    "type": "text",
+    "input": "As a user who has forgotten their password, I want to reset it via email so I can regain account access. The reset link should expire after 24 hours. Users should see a confirmation screen after submitting their email."
+  },
+  {
+    "id": "product-search",
+    "type": "text",
+    "input": "Users should be able to search for products by keyword, filter results by category and price range, sort by relevance or price, and see paginated results with 20 items per page."
+  }
+]
