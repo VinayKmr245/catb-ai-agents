@@ -2,13 +2,13 @@
 // Agent that generates ONLY new selectors, strictly following existing patterns
 
 import Groq from "groq-sdk";
-import { AGENT_SYSTEM_PROMPT } from "../../agents/config";
 import type {
-    AgentConfig,
-    ExistingContext,
-    GeneratedSelectorAdditions,
-    TestRequirement,
+  TestRequirement,
+  ExistingContext,
+  GeneratedSelectorAdditions,
+  AgentConfig,
 } from "../types";
+import { AGENT_SYSTEM_PROMPT } from "../config/config";
 
 const TOOLS: Groq.Chat.ChatCompletionTool[] = [
   {
@@ -49,13 +49,7 @@ const TOOLS: Groq.Chat.ChatCompletionTool[] = [
                     "For new files: the complete file content. For existing: the lines to add inside the object.",
                 },
               },
-              required: [
-                "targetFile",
-                "exportName",
-                "isNewFile",
-                "newSelectors",
-                "patchContent",
-              ],
+              required: ["targetFile", "exportName", "isNewFile", "newSelectors"],
             },
           },
         },
@@ -156,15 +150,15 @@ Call write_selector_additions with your output.
             exportName: string;
             isNewFile: boolean;
             newSelectors: Record<string, string>;
-            patchContent: string;
+            patchContent?: string;
           }>;
         };
 
         return input.additions.map((a) => ({
           targetFile: a.targetFile,
           exportName: a.exportName,
-          additions: a.newSelectors,
-          patchContent: a.patchContent,
+          additions: a.newSelectors ?? {},
+          patchContent: a.patchContent ?? "",
         }));
       }
 

@@ -2,16 +2,16 @@
 // Scans the existing Cypress project to build context for the AI agents
 
 import * as fs from "fs";
-import * as path from "path";
 import { glob } from "glob";
+import * as path from "path";
 import type {
   ExistingContext,
   FeatureFile,
-  StepDefinition,
-  SelectorFile,
   ParsedStep,
+  ProjectConfig,
+  SelectorFile,
+  StepDefinition,
 } from "../types";
-import type { ProjectConfig } from "../types";
 
 export class ContextScanner {
   constructor(private config: ProjectConfig) {}
@@ -124,7 +124,7 @@ export class ContextScanner {
   }
 
   parseSelectors(content: string): Record<string, string> {
-    const selectors: Record<string, string> = [];
+    const selectors: Record<string, string> = {};
     const objMatch = content.match(/export\s+const\s+\w+\s*=\s*\{([\s\S]*?)\}/);
     if (!objMatch) return selectors;
 

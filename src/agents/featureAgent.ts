@@ -2,13 +2,13 @@
 // Agent that generates Gherkin feature files from requirements + existing context
 
 import Groq from "groq-sdk";
-import { AGENT_SYSTEM_PROMPT } from "../../agents/config";
 import type {
-    AgentConfig,
-    ExistingContext,
-    GeneratedFeature,
-    TestRequirement,
+  TestRequirement,
+  ExistingContext,
+  GeneratedFeature,
+  AgentConfig,
 } from "../types";
+import { AGENT_SYSTEM_PROMPT } from "../config/config";
 
 const TOOLS: Groq.Chat.ChatCompletionTool[] = [
   {
@@ -46,7 +46,7 @@ const TOOLS: Groq.Chat.ChatCompletionTool[] = [
             description: "New step definitions that will need to be created",
           },
         },
-        required: ["filename", "content", "reusedSteps", "newStepsNeeded"],
+        required: ["filename", "content"],
       },
     },
   },
@@ -117,15 +117,15 @@ Call write_feature_file with your output.
         const input = JSON.parse(toolCall.function.arguments) as {
           filename: string;
           content: string;
-          reusedSteps: string[];
-          newStepsNeeded: Array<{keyword: string; pattern: string; purpose: string}>;
+          reusedSteps?: string[];
+          newStepsNeeded?: Array<{keyword: string; pattern: string; purpose: string}>;
         };
         return {
           filename: input.filename,
           content: input.content,
           path: `${requirements.title.replace(/\s+/g, "-").toLowerCase()}/`,
-          reusedSteps: input.reusedSteps,
-          newStepsNeeded: input.newStepsNeeded,
+          reusedSteps: input.reusedSteps ?? [],
+          newStepsNeeded: input.newStepsNeeded ?? [],
         };
       }
 

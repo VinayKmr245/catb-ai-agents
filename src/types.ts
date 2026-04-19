@@ -114,12 +114,50 @@ export interface AgentToolResult {
   error?: string;
 }
 
+// ── LLM Provider Types ─────────────────────────────────────────────────────
+
+export type LLMProvider = "anthropic" | "groq";
+
+export interface ProviderCapabilities {
+  supportsToolUse: boolean;
+  supportsSystemPrompt: boolean;
+  maxContextTokens: number;
+  recommendedModel: string;
+}
+
+export interface LLMMessage {
+  role: "user" | "assistant" | "system";
+  content: string;
+}
+
+export interface LLMToolDefinition {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>; // JSON Schema
+}
+
+export interface LLMToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}
+
+export interface LLMResponse {
+  content: string;
+  toolCalls: LLMToolCall[];
+  finishReason: "stop" | "tool_use" | "length" | "error";
+  usage?: { promptTokens: number; completionTokens: number };
+}
+
 // Agent-specific config
 export interface AgentConfig {
   model: string;
   maxTokens: number;
   apiKey: string;
   maxIterations: number;
+  provider: LLMProvider;
+  groqApiKey?: string;
+  groqModel?: string;
 }
 
 export interface ProjectConfig {

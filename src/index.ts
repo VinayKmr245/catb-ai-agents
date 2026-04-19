@@ -6,11 +6,10 @@ import { program } from "commander";
 import * as fs from "fs";
 import inquirer from "inquirer";
 import * as path from "path";
-import { getAgentConfig, getProjectConfig } from "../agents/config";
-import { Orchestrator } from "../agents/orchestrator";
-import { RallyAgent } from "../agents/rallyAgent";
-import { TextInputAgent } from "../agents/textInputAgent";
-import { MockRallyClient, RallyClient } from "./tools/rallyTool";
+import { Orchestrator } from "./agents/orchestrator";
+import { TextInputAgent } from "./agents/textInputAgent";
+import { getAgentConfig, getProjectConfig } from "./config/config";
+// import { MockRallyClient, RallyClient } from "./tools/rallyTool";
 import type { TestRequirement } from "./types";
 import { FileWriter } from "./utils/fileWriter";
 
@@ -38,11 +37,12 @@ async function main() {
   let requirements: TestRequirement;
   const mode = await resolveMode();
 
-  if (mode === "rally") {
-    requirements = await handleRallyMode(agentConfig, projectConfig);
-  } else {
-    requirements = await handleTextMode(agentConfig);
-  }
+  // if (mode === "rally") {
+  //   requirements = TestRequirement(); // Placeholder until Rally integration is implemented
+  //   // requirements = await handleRallyMode(agentConfig, projectConfig);
+  // } else {
+  // }
+  requirements = await handleTextMode(agentConfig);
 
   const orchestrator = new Orchestrator(agentConfig, projectConfig);
   const dryRun = Boolean(opts.dryRun);
@@ -90,36 +90,36 @@ async function resolveMode(): Promise<"rally" | "text"> {
   return mode;
 }
 
-async function handleRallyMode(
-  agentConfig: ReturnType<typeof getAgentConfig>,
-  projectConfig: ReturnType<typeof getProjectConfig>
-): Promise<TestRequirement> {
-  let rallyInput = opts.rallyUrl as string;
+// async function handleRallyMode(
+//   agentConfig: ReturnType<typeof getAgentConfig>,
+//   projectConfig: ReturnType<typeof getProjectConfig>
+// ): Promise<TestRequirement> {
+//   let rallyInput = opts.rallyUrl as string;
 
-  if (!rallyInput) {
-    const { url } = await inquirer.prompt([
-      {
-        type: "input",
-        name: "url",
-        message: "Enter Rally ticket URL or ID (e.g. US12345 or full URL):",
-        validate: (v) => (v.trim() ? true : "Please enter a Rally ticket ID"),
-      },
-    ]);
-    rallyInput = url;
-  }
+//   if (!rallyInput) {
+//     const { url } = await inquirer.prompt([
+//       {
+//         type: "input",
+//         name: "url",
+//         message: "Enter Rally ticket URL or ID (e.g. US12345 or full URL):",
+//         validate: (v) => (v.trim() ? true : "Please enter a Rally ticket ID"),
+//       },
+//     ]);
+//     rallyInput = url;
+//   }
 
-  console.log(chalk.gray(`\n  Fetching Rally ticket: ${rallyInput}`));
+//   console.log(chalk.gray(`\n  Fetching Rally ticket: ${rallyInput}`));
 
-  const rallyClient = opts.mockRally
-    ? new MockRallyClient()
-    : new RallyClient(projectConfig);
+//   // const rallyClient = opts.mockRally
+//   //   ? new MockRallyClient()
+//   //   : new RallyClient(projectConfig);
 
-  const ticket = await rallyClient.fetchTicket(rallyInput);
-  console.log(chalk.green(`  ✓ Fetched: [${ticket.formattedId}] ${ticket.name}`));
+//   // const ticket = await rallyClient.fetchTicket(rallyInput);
+//   // console.log(chalk.green(`  ✓ Fetched: [${ticket.formattedId}] ${ticket.name}`));
 
-  const rallyAgent = new RallyAgent(agentConfig);
-  return rallyAgent.extractRequirements(ticket);
-}
+//   // const rallyAgent = new RallyAgent(agentConfig);
+//   // return rallyAgent.extractRequirements(ticket);
+// }
 
 async function handleTextMode(
   agentConfig: ReturnType<typeof getAgentConfig>

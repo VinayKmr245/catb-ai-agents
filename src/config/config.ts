@@ -5,25 +5,33 @@ import type { AgentConfig, ProjectConfig } from "../types";
 
 dotenv.config();
 
+function requireEnv(name: string): string {
+  const val = process.env[name];
+  if (!val) throw new Error(`${name} is not set in environment`);
+  return val;
+}
+
 export function getAgentConfig(): AgentConfig {
-  const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) throw new Error("GROQ_API_KEY is not set in environment");
   return {
-    model: process.env.AI_MODEL || "llama-3.3-70b-versatile",
-    maxTokens: parseInt(process.env.MAX_TOKENS || "8192"),
-    apiKey,
-    maxIterations: 10,
+    provider: "azure" as const,
+    apiKey: requireEnv("AZURE_OPENAI_API_KEY"),
+    azureEndpoint: requireEnv("AZURE_OPENAI_ENDPOINT"),       // e.g. https://my-resource.openai.azure.com
+    azureDeployment: process.env.AZURE_OPENAI_DEPLOYMENT ?? "gpt-4o",
+    azureApiVersion: process.env.AZURE_OPENAI_API_VERSION ?? "2024-02-01",
+    model: process.env.AZURE_OPENAI_DEPLOYMENT ?? "gpt-4o",   // kept for compatibility
+    maxTokens: parseInt(process.env.MAX_TOKENS ?? "8192"),
+    maxIterations: parseInt(process.env.MAX_ITERATIONS ?? "10"),
   };
 }
 
 export function getProjectConfig(): ProjectConfig {
   return {
-    cypressRoot: path.resolve(process.env.CYPRESS_ROOT || "./cypress"),
-    featuresDir: path.resolve(process.env.FEATURES_DIR || "./cypress/e2e/features"),
-    stepsDir: path.resolve(process.env.STEPS_DIR || "./cypress/e2e/step_definitions"),
-    selectorsDir: path.resolve(process.env.SELECTORS_DIR || "./cypress/support/selectors"),
-    rallyBaseUrl: process.env.RALLY_BASE_URL || "https://rally1.rallydev.com/slm/webservice/v2.0",
-    rallyApiKey: process.env.RALLY_API_KEY || "",
+    cypressRoot: path.resolve(process.env.CYPRESS_ROOT ?? "./cypress"),
+    featuresDir: path.resolve(process.env.FEATURES_DIR ?? "./cypress/e2e/features"),
+    stepsDir: path.resolve(process.env.STEPS_DIR ?? "./cypress/e2e/step_definitions"),
+    selectorsDir: path.resolve(process.env.SELECTORS_DIR ?? "./cypress/support/selectors"),
+    rallyBaseUrl: process.env.RALLY_BASE_URL ?? "https://rally1.rallydev.com/slm/webservice/v2.0",
+    rallyApiKey: process.env.RALLY_API_KEY ?? "",
   };
 }
 
@@ -34,15 +42,15 @@ export const AGENT_SYSTEM_PROMPT = `You are an expert Cypress Cucumber test auto
 
 YOUR STRICT RULES:
 1. ALWAYS reuse existing step definitions - never create duplicates
-2. New step patterns MUST follow Given/When/Then naming conventions
+2. New step patterns MUST follow Given/When/Then naming conventions — NEVER use And or But as a keyword
 3. Selectors MUST use data-cy attributes: export const xyzSelectors = { key: '[data-cy="value"]' }
 4. Only generate new steps if NO existing step covers the behavior
 5. Keep steps atomic and single-responsibility
 6. Feature files must use Background for shared setup steps
 7. Scenarios must be independent and not share state
-8. Step function bodies must call selector-based page object methods only
+8. Step function bodies must use selector references (sel.*) — never hardcode selectors
 
-SELECTOR PATTERN (strictly follow this):
+SELECTOR PATTERN:
 export const loginSelectors = {
   usernameInput: '[data-cy="username"]',
   passwordInput: '[data-cy="password"]',
