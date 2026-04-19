@@ -1,55 +1,22 @@
 // src/agents/rallyAgent.ts
-// Agent responsible for extracting structured requirements from Rally tickets
+// Extracts structured requirements from Rally tickets
 
-import Groq from "groq-sdk";
+import { AIClient } from "../lib/aiClient";
+import { EXTRACT_REQUIREMENTS_TOOL } from "../lib/tools";
 import type { RallyTicket, TestRequirement, AgentConfig } from "../types";
 
-const TOOLS: Groq.Chat.ChatCompletionTool[] = [
-  {
-    type: "function",
-    function: {
-      name: "extract_requirements",
-      description:
-        "Extracts structured test requirements from raw Rally ticket data. Parses acceptance criteria, identifies test scenarios, and normalises the content for test generation.",
-      parameters: {
-        type: "object",
-        properties: {
-          title: { type: "string", description: "Clean feature title for the test" },
-          description: { type: "string", description: "One-sentence feature description" },
-          acceptanceCriteria: {
-            type: "array",
-            items: { type: "string" },
-            description: "List of testable acceptance criteria statements",
-          },
-          userStories: {
-            type: "array",
-            items: { type: "string" },
-            description: "User story sentences (As a... I want... So that...)",
-          },
-          tags: {
-            type: "array",
-            items: { type: "string" },
-            description: "Feature tags/labels for categorization",
-          },
-        },
-        required: ["title", "description", "acceptanceCriteria", "userStories", "tags"],
-      },
-    },
-  },
-];
-
 export class RallyAgent {
-  private client: Groq;
+  private ai: AIClient;
 
-  constructor(private config: AgentConfig) {
-    this.client = new Groq({ apiKey: config.apiKey });
+  constructor(config: AgentConfig) {
+    this.ai = new AIClient(config);
   }
 
   async extractRequirements(ticket: RallyTicket): Promise<TestRequirement> {
     const prompt = `
-You are analysing a Rally ticket to extract structured test requirements.
+Analyse this Rally ticket and extract structured test requirements.
 
-TICKET DATA:
+TICKET:
 ID: ${ticket.formattedId}
 Title: ${ticket.name}
 State: ${ticket.state}
@@ -61,43 +28,41 @@ ${ticket.description}
 Acceptance Criteria:
 ${ticket.acceptanceCriteria}
 
-Additional Notes/Test Cases from ticket:
+Test Cases / Notes:
 ${ticket.testCases.join("\n")}
 
-Extract all testable requirements. Break down compound acceptance criteria into individual testable statements.
-Call the extract_requirements tool with the structured data.
+Break down compound acceptance criteria into individual testable statements.
+Call extract_requirements with the structured data.
 `.trim();
 
-    const response = await this.client.chat.completions.create({
-      model: this.config.model,
-      max_tokens: 2048,
-      tools: TOOLS,
-      messages: [{ role: "user", content: prompt }],
-    });
+    const result = await this.ai.complete(
+      [{ role: "user", content: prompt }],
+      [EXTRACT_REQUIREMENTS_TOOL],
+      2048
+    );
 
-    const message = response.choices[0].message;
-    const toolCall = message.tool_calls?.[0];
+    if (result.toolCall?.function.name === "extract_requirements") {
+      const input = AIClient.parseArgs<{
+        title: string;
+        description: string;
+        acceptanceCriteria: string[];
+        userStories: string[];
+        tags: string[];
+      }>(result.toolCall);
 
-    if (!toolCall || toolCall.type !== "function") {
-      throw new Error("Rally agent did not call extract_requirements tool");
+      if (!input) throw new Error("RallyAgent: failed to parse tool arguments");
+
+      return {
+        source: "rally",
+        title: input.title,
+        description: input.description,
+        acceptanceCriteria: input.acceptanceCriteria,
+        userStories: input.userStories,
+        tags: input.tags,
+        rawContent: `${ticket.name}\n\n${ticket.description}\n\n${ticket.acceptanceCriteria}`,
+      };
     }
 
-    const input = JSON.parse(toolCall.function.arguments) as {
-      title: string;
-      description: string;
-      acceptanceCriteria: string[];
-      userStories: string[];
-      tags: string[];
-    };
-
-    return {
-      source: "rally",
-      title: input.title,
-      description: input.description,
-      acceptanceCriteria: input.acceptanceCriteria,
-      userStories: input.userStories,
-      tags: input.tags,
-      rawContent: `${ticket.name}\n\n${ticket.description}\n\n${ticket.acceptanceCriteria}`,
-    };
+    throw new Error("RallyAgent: model did not call extract_requirements tool");
   }
 }

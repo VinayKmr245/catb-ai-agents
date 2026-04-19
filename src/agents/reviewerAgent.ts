@@ -1,11 +1,12 @@
 // src/agents/reviewerAgent.ts
-// Agent that reviews all generated output for consistency and correctness
+// Reviews generated output — phase 1: lightweight assessment, phase 2: targeted fixes
 
-import Groq from "groq-sdk";
-import type { GeneratedOutput, ExistingContext, AgentConfig } from "../types";
+import { AIClient, type ChatMessage } from "../lib/aiClient";
+import { REVIEW_TOOL, FIX_TOOL } from "../lib/tools";
 import { AGENT_SYSTEM_PROMPT } from "../config/config";
+import type { GeneratedOutput, ExistingContext, AgentConfig } from "../types";
 
-interface ReviewResult {
+export interface ReviewResult {
   approved: boolean;
   issues: string[];
   suggestions: string[];
@@ -13,136 +14,16 @@ interface ReviewResult {
   fixedStepContent?: string;
 }
 
-// Phase 1: lightweight review — only booleans and short strings, no large content
-const REVIEW_TOOLS: Groq.Chat.ChatCompletionTool[] = [
-  {
-    type: "function",
-    function: {
-      name: "review_output",
-      description: "Reviews generated Cypress test files and reports issues found.",
-      parameters: {
-        type: "object",
-        properties: {
-          approved: {
-            type: "boolean",
-            description: "True if no critical issues were found",
-          },
-          issues: {
-            type: "array",
-            items: { type: "string" },
-            description: "Critical issues that must be fixed (short descriptions)",
-          },
-          suggestions: {
-            type: "array",
-            items: { type: "string" },
-            description: "Non-blocking suggestions for improvement",
-          },
-          featureNeedsFix: {
-            type: "boolean",
-            description: "True if the feature file requires corrections",
-          },
-          stepsNeedFix: {
-            type: "boolean",
-            description: "True if the step definitions require corrections",
-          },
-        },
-        required: ["approved", "issues", "suggestions", "featureNeedsFix", "stepsNeedFix"],
-      },
-    },
-  },
-];
-
-// Phase 2: fix — returns only the corrected file content
-const FIX_TOOLS: Groq.Chat.ChatCompletionTool[] = [
-  {
-    type: "function",
-    function: {
-      name: "provide_fix",
-      description: "Returns the fully corrected file content after issues were identified.",
-      parameters: {
-        type: "object",
-        properties: {
-          content: {
-            type: "string",
-            description: "The complete corrected file content",
-          },
-        },
-        required: ["content"],
-      },
-    },
-  },
-];
-
 export class ReviewerAgent {
-  private client: Groq;
+  private ai: AIClient;
 
-  constructor(private config: AgentConfig) {
-    this.client = new Groq({ apiKey: config.apiKey });
+  constructor(config: AgentConfig) {
+    this.ai = new AIClient(config);
   }
 
-  async review(
-    output: GeneratedOutput,
-    context: ExistingContext
-  ): Promise<ReviewResult> {
-    const existingStepPatterns = context.stepDefinitions
-      .flatMap((s) => s.steps)
-      .map((s) => s.pattern);
-
-    const reviewPrompt = `
-Review these generated Cypress Cucumber test files for correctness.
-
-=== FEATURE FILE: ${output.featureFile.filename} ===
-${output.featureFile.content}
-
-=== NEW STEP DEFINITIONS ===
-${output.newSteps.map((s) => `--- ${s.filename} ---\n${s.content}`).join("\n\n")}
-
-=== NEW SELECTORS ===
-${output.newSelectors
-  .map((s) => `--- ${s.targetFile} (additions) ---\n${JSON.stringify(s.additions, null, 2)}`)
-  .join("\n\n")}
-
-=== EXISTING STEP PATTERNS (must not be duplicated) ===
-${existingStepPatterns.map((p) => `  "${p}"`).join("\n")}
-
-REVIEW CHECKLIST:
-1. Are all steps in the feature file implemented (either reused or new)?
-2. Are there any duplicate steps vs existing definitions?
-3. Do all selectors strictly follow '[data-cy="..."]' pattern?
-4. Are Given/When/Then used correctly?
-5. Is the feature file valid Gherkin syntax?
-6. Are step imports correct?
-7. Are selector keys descriptive and camelCase?
-8. Are there hardcoded selectors in step bodies (should use sel.* instead)?
-
-Call review_output with your findings. Keep issue descriptions short (one sentence each).
-`.trim();
-
-    // ── Phase 1: Review ────────────────────────────────────────────────────
-    const reviewResponse = await this.client.chat.completions.create({
-      model: this.config.model,
-      max_tokens: 1024,
-      tools: REVIEW_TOOLS,
-      messages: [
-        { role: "system", content: AGENT_SYSTEM_PROMPT },
-        { role: "user", content: reviewPrompt },
-      ],
-    });
-
-    const reviewMessage = reviewResponse.choices[0].message;
-    const reviewToolCall = reviewMessage.tool_calls?.[0];
-
-    if (!reviewToolCall || reviewToolCall.type !== "function") {
-      return { approved: true, issues: [], suggestions: [] };
-    }
-
-    const reviewResult = JSON.parse(reviewToolCall.function.arguments) as {
-      approved: boolean;
-      issues: string[];
-      suggestions: string[];
-      featureNeedsFix: boolean;
-      stepsNeedFix: boolean;
-    };
+  async review(output: GeneratedOutput, context: ExistingContext): Promise<ReviewResult> {
+    // ── Phase 1: lightweight review (no large content returned) ───────────
+    const reviewResult = await this.runReview(output, context);
 
     const result: ReviewResult = {
       approved: reviewResult.approved,
@@ -150,7 +31,7 @@ Call review_output with your findings. Keep issue descriptions short (one senten
       suggestions: reviewResult.suggestions ?? [],
     };
 
-    // ── Phase 2: Fix feature file if needed ────────────────────────────────
+    // ── Phase 2: fix only what's broken, in separate focused calls ─────────
     if (reviewResult.featureNeedsFix && output.featureFile.content) {
       result.fixedFeatureContent = await this.requestFix(
         "feature file",
@@ -159,7 +40,6 @@ Call review_output with your findings. Keep issue descriptions short (one senten
       );
     }
 
-    // ── Phase 3: Fix step definitions if needed ────────────────────────────
     if (reviewResult.stepsNeedFix && output.newSteps[0]?.content) {
       result.fixedStepContent = await this.requestFix(
         "step definitions",
@@ -171,16 +51,83 @@ Call review_output with your findings. Keep issue descriptions short (one senten
     return result;
   }
 
+  private async runReview(
+    output: GeneratedOutput,
+    context: ExistingContext
+  ): Promise<{
+    approved: boolean;
+    issues: string[];
+    suggestions: string[];
+    featureNeedsFix: boolean;
+    stepsNeedFix: boolean;
+  }> {
+    const existingPatterns = context.stepDefinitions
+      .flatMap((s) => s.steps)
+      .map((s) => `  "${s.pattern}"`)
+      .join("\n");
+
+    const prompt = `
+Review these generated Cypress Cucumber test files.
+
+=== FEATURE FILE: ${output.featureFile.filename} ===
+${output.featureFile.content}
+
+=== STEP DEFINITIONS ===
+${output.newSteps.map((s) => `--- ${s.filename} ---\n${s.content}`).join("\n\n")}
+
+=== NEW SELECTORS ===
+${output.newSelectors
+  .map((s) => `--- ${s.targetFile} ---\n${JSON.stringify(s.additions, null, 2)}`)
+  .join("\n\n")}
+
+=== EXISTING STEP PATTERNS (must not be duplicated) ===
+${existingPatterns || "  (none)"}
+
+CHECKLIST:
+1. All feature steps implemented (reused or new)?
+2. Duplicate steps vs existing definitions?
+3. Selectors use '[data-cy="..."]' format?
+4. Given/When/Then used correctly — no And/But as step keywords?
+5. Valid Gherkin syntax?
+6. Correct imports in step files?
+7. Selector keys camelCase?
+8. No hardcoded selectors in step bodies?
+
+Call review_output. Keep issue descriptions to one sentence each.
+`.trim();
+
+    const result = await this.ai.complete(
+      [
+        { role: "system", content: AGENT_SYSTEM_PROMPT },
+        { role: "user", content: prompt },
+      ],
+      [REVIEW_TOOL],
+      1024
+    );
+
+    if (result.toolCall?.function.name === "review_output") {
+      return AIClient.parseArgs(result.toolCall) ?? {
+        approved: true,
+        issues: [],
+        suggestions: [],
+        featureNeedsFix: false,
+        stepsNeedFix: false,
+      };
+    }
+
+    return { approved: true, issues: [], suggestions: [], featureNeedsFix: false, stepsNeedFix: false };
+  }
+
   private async requestFix(
     fileType: string,
     originalContent: string,
     issues: string[]
   ): Promise<string | undefined> {
-    const fixPrompt = `
-Fix the following ${fileType} based on these identified issues:
+    const prompt = `
+Fix the following ${fileType} based on the identified issues.
 
-ISSUES TO FIX:
-${issues.map((i, n) => `${n + 1}. ${i}`).join("\n")}
+ISSUES:
+${issues.map((issue, n) => `${n + 1}. ${issue}`).join("\n")}
 
 ORIGINAL CONTENT:
 ${originalContent}
@@ -189,22 +136,18 @@ Call provide_fix with the fully corrected content.
 `.trim();
 
     try {
-      const fixResponse = await this.client.chat.completions.create({
-        model: this.config.model,
-        max_tokens: this.config.maxTokens ?? 4096,
-        tools: FIX_TOOLS,
-        messages: [
+      const result = await this.ai.complete(
+        [
           { role: "system", content: AGENT_SYSTEM_PROMPT },
-          { role: "user", content: fixPrompt },
+          { role: "user", content: prompt },
         ],
-      });
+        [FIX_TOOL],
+        this.ai.maxIterations * 1000   // allow enough tokens for the full corrected file
+      );
 
-      const fixMessage = fixResponse.choices[0].message;
-      const fixToolCall = fixMessage.tool_calls?.[0];
-
-      if (fixToolCall?.type === "function" && fixToolCall.function.name === "provide_fix") {
-        const input = JSON.parse(fixToolCall.function.arguments) as { content: string };
-        return input.content;
+      if (result.toolCall?.function.name === "provide_fix") {
+        const input = AIClient.parseArgs<{ content: string }>(result.toolCall);
+        return input?.content;
       }
     } catch (err) {
       console.warn(`  ⚠ Could not auto-fix ${fileType}:`, (err as Error).message);
